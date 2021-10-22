@@ -2,45 +2,74 @@ package com.example.android_coroutine_practice
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.provider.Settings
 import com.example.android_coroutine_practice.databinding.ActivityMainBinding
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.newSingleThreadContext
+import kotlinx.coroutines.*
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : BindingActivity<ActivityMainBinding>() {
     override fun getLayoutRes(): Int = R.layout.activity_main
-    private val netDispatcher = newSingleThreadContext(name = "ServiceCall")
+    private val netDispatcher = newFixedThreadPoolContext(2, name = "IO")
     private val factory = DocumentBuilderFactory.newInstance()
+
+    private val feeds = listOf(
+        "https://www.npr.org/rss/rss.php?id=1001",
+        "http://rss.cnn.com/rss/cnn_topstories.rss",
+        "http://feeds.foxnews.com/foxnews/politics?format=xml",
+        "htt://myNewsFeed"
+    )
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        asyncLoadNews(netDispatcher)
+    }
 
-        GlobalScope.launch(netDispatcher) {
-            val headlines = fetchResHeadlines()
+    private fun asyncLoadNews(dispatcher: CoroutineDispatcher) = GlobalScope.launch {
+        val request = mutableListOf<Deferred<List<String>>>()
 
-            GlobalScope.launch (Dispatchers.Main){
-                binding.newsCount.text = "Found ${headlines.size} News"
+        feeds.mapTo(request) {
+            asyncFetchHeadlines(it, dispatcher = dispatcher)
+        }
+
+        request.forEach {
+            it.join()
+        }
+
+        val headLines = request
+            .filter { !it.isCancelled }
+            .flatMap {
+            it.getCompleted()
+        }
+
+        val failed = request
+            .filter { it.isCancelled }
+            .size
+
+        launch(Dispatchers.Main) {
+            binding.newsCount.text = "Found ${headLines.size} News in ${request.size - failed} feeds"
+
+            if(failed > 0) {
+                binding.warings.text = "Failed to fetch $failed feeds"
             }
         }
     }
 
-    private fun fetchResHeadlines() : List<String>{
-        val builder = factory.newDocumentBuilder()
-        val xml = builder.parse("https://www.npr.org/rss/rss.php?id=1001")
-        val news = xml.getElementsByTagName("channel").item(0)
+    private fun asyncFetchHeadlines(feed: String, dispatcher: CoroutineDispatcher) =
+        GlobalScope.async(dispatcher) {
+            val builder = factory.newDocumentBuilder()
+            val xml = builder.parse(feed)
+            val news = xml.getElementsByTagName("channel").item(0)
 
-        return (0 until news.childNodes.length)
-            .map { news.childNodes.item(it) }
-            .filter { Node.ELEMENT_NODE == it.nodeType }
-            .map { it as Element }
-            .filter { "item" == it.tagName }
-            .map {
-                it.getElementsByTagName("title").item(0).textContent
-            }
-    }
+            (0 until news.childNodes.length)
+                .map { news.childNodes.item(it) }
+                .filter { Node.ELEMENT_NODE == it.nodeType }
+                .map { it as Element }
+                .filter { "item" == it.tagName }
+                .map {
+                    it.getElementsByTagName("title").item(0).textContent
+                }
+        }
 }
