@@ -34,6 +34,7 @@ class MainActivity : BindingActivity<ActivityMainBinding>() {
             asyncFetchHeadlines(it, dispatcher = dispatcher)
         }
 
+        //deferred의 join() 경우, 예외가 전파되지 않는 반면 await()는 예외가 전파된다.
         request.forEach {
             it.join()
         }
