@@ -1,4 +1,4 @@
-package com.example.android_coroutine_practice
+package com.example.android_coroutine
 
 import android.os.Bundle
 import androidx.annotation.LayoutRes
